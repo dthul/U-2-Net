@@ -22,6 +22,76 @@ from model import U2NETP  # small version u2net 4.7 MB
 
 # normalize the predicted SOD probability map
 
+# Add NHWC checks:
+
+
+def contains_cl(args):
+    for t in args:
+        if isinstance(t, torch.Tensor):
+            if t.is_contiguous(memory_format=torch.channels_last) and not t.is_contiguous():
+                return True
+        elif isinstance(t, list) or isinstance(t, tuple):
+            if contains_cl(list(t)):
+                return True
+    return False
+
+
+def print_inputs(args, indent=''):
+    for t in args:
+        if isinstance(t, torch.Tensor):
+            print(indent, t.stride(), t.shape, t.device, t.dtype)
+        elif isinstance(t, list) or isinstance(t, tuple):
+            print(indent, type(t))
+            print_inputs(list(t), indent=indent + '    ')
+        else:
+            print(indent, t)
+
+
+def check_wrapper(fn):
+    name = fn.__name__
+
+    def check_cl(*args, **kwargs):
+        was_cl = contains_cl(args)
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as e:
+            print("`{}` inputs are:".format(name))
+            print_inputs(args)
+            print('-------------------')
+            raise e
+        failed = False
+        if was_cl:
+            if isinstance(result, torch.Tensor):
+                if result.dim() == 4 and not result.is_contiguous(memory_format=torch.channels_last):
+                    print("`{}` got channels_last input, but output is not channels_last:".format(name),
+                          result.shape, result.stride(), result.device, result.dtype)
+                    failed = True
+        if failed and True:
+            print("`{}` inputs are:".format(name))
+            print_inputs(args)
+            raise Exception(
+                'Operator `{}` lost channels_last property'.format(name))
+        return result
+    return check_cl
+
+
+def attribute(m):
+    for i in dir(m):
+        e = getattr(m, i)
+        exclude_functions = ['is_cuda', 'has_names', 'numel',
+                             'stride', 'Tensor', 'is_contiguous', '__class__']
+        if i not in exclude_functions and not i.startswith('_') and '__call__' in dir(e):
+            try:
+                setattr(m, i, check_wrapper(e))
+            except Exception as e:
+                print(i)
+                print(e)
+
+
+attribute(torch.Tensor)
+attribute(torch.nn.functional)
+attribute(torch)
+
 
 def normPRED(d):
     ma = torch.max(d)
@@ -72,7 +142,11 @@ def main():
     net.eval()
 
     # --------- 3. export ---------
-    dummy_input = torch.randn(1, 3, 320, 320).type(torch.FloatTensor)
+    # Channels last doesn't work yet with PyTorch 1.5.0 since conv2d doesn't
+    # keep the memory order. PyTorch 1.5.1 might fix it (https://github.com/pytorch/pytorch/issues/37725)
+    # net = net.to(memory_format=torch.channels_last)
+    # dummy_input = torch.randn(1, 3, 320, 320).type(
+    # torch.FloatTensor).to(memory_format=torch.channels_last)
     torch_out = net(dummy_input)
 
     output_name = "{}.onnx".format(model_name)
