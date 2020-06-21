@@ -1,5 +1,6 @@
 import os
 from skimage import io, transform
+import tensorflow as tf
 import torch
 import torchvision
 from torch.autograd import Variable
@@ -18,7 +19,7 @@ from data_loader import ToTensorLab
 from data_loader import SalObjDataset
 
 from model import U2NET  # full size version 173.6 MB
-from model import U2NETP  # small version u2net 4.7 MB
+from model import U2NETP, u2netp_tf  # small version u2net 4.7 MB
 
 # normalize the predicted SOD probability map
 
@@ -124,6 +125,64 @@ def save_output(image_name, pred, d_dir):
     imo.save(d_dir+imidx+'.png')
 
 
+def find_variable_by_name(name, net):
+    for v in net.variables:
+        if v.name == name:
+            return v
+    return None
+
+
+def transfer_weights(state_dict, net):
+    for name, value in state_dict.items():
+        is_convolution = '.conv_' in name or name.startswith(
+            'side') or name.startswith('outconv')
+        is_batchnorm = '.bn_' in name
+        assert(not (is_convolution and is_batchnorm))
+        if not is_convolution and not is_batchnorm:
+            print("Unknown state:", name)
+            continue
+        elif is_convolution:
+            if name.endswith('.weight'):
+                target_name = name.replace('.weight', '/kernel:0')
+                target_value = value.permute(2, 3, 1, 0).numpy()
+            elif name.endswith('.bias'):
+                target_name = name.replace('.bias', '/bias:0')
+                target_value = value.numpy()
+            else:
+                print("Unknown convolution state:", name)
+                continue
+        elif is_batchnorm:
+            if name.endswith('.running_mean'):
+                target_name = name.replace('.running_mean', '/moving_mean:0')
+                target_value = value.numpy()
+            elif name.endswith('.running_var'):
+                target_name = name.replace(
+                    '.running_var', '/moving_variance:0')
+                target_value = value.numpy()
+            elif name.endswith('.weight'):
+                target_name = name.replace('.weight', '/gamma:0')
+                target_value = value.numpy()
+            elif name.endswith('.bias'):
+                target_name = name.replace('.bias', '/beta:0')
+                target_value = value.numpy()
+            elif name.endswith('.num_batches_tracked'):
+                # Ignore
+                continue
+            else:
+                print("Unknown batch normalization state:", name)
+                continue
+        else:
+            # This should be unreachable
+            print("Weight transfer error")
+            raise "Weight transfer error"
+        target_variable = find_variable_by_name(target_name, net)
+        if target_variable is None:
+            print("Could not find state in Tensorflow model:",
+                  name, "->", target_name)
+            continue
+        target_variable.assign(target_value)
+
+
 def main():
 
     # --------- 1. get image path and name ---------
@@ -138,7 +197,12 @@ def main():
     elif(model_name == 'u2netp'):
         print("...load U2NEP---4.7 MB")
         net = U2NETP(3, 1)
+        input = tf.keras.Input(shape=(320, 320, 3), name="img")
+        output = u2netp_tf(input, 1)
+        net_tf = tf.keras.Model(input, output)
     net.load_state_dict(torch.load(model_dir, map_location='cpu'))
+    transfer_weights(net.state_dict(), net_tf)
+    net_tf.save("u2netp_custom")
     net.eval()
 
     # --------- 3. export ---------

@@ -34,6 +34,10 @@ or
 
 `toco --enable_v1_converter --graph_def_file u2netp_transformed.pb --output_file u2netp_transformed.tflite --input_arrays input --output_arrays d0 --input_shapes 1,3,320,320`
 
+or
+
+`toco --output_file u2netp_custom.tflite --saved_model_dir u2netp_custom --experimental_new_converter true --input_shapes 1,320,320,3`
+
 If you want to do inference on sizes other than 320x320, do something like this at runtime (not so efficient though!):
 
 ```python
@@ -48,6 +52,15 @@ input_details = model.get_input_details()
 model.resize_tensor_input(
     input_details[0]['index'], (2, 128, 200, 1))
 model.allocate_tensors()
+```
+
+# Step 4b: Visualize TFLite Graph
+
+In Tensorflow repo:
+```
+bazel run //tensorflow/lite/tools:visualize \
+     model.tflite \
+     visualized_model.html
 ```
 
 (also works in C++ and Java APIs).

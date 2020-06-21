@@ -2,6 +2,17 @@ import torch
 import torch.nn as nn
 from torchvision import models
 import torch.nn.functional as F
+import tensorflow as tf
+
+
+def rebnconv_tf(input, out_ch=3, dirate=1, name='rebnconv'):
+    name_prefix = name + '.'
+    x = tf.keras.layers.Conv2D(
+        out_ch, 3, padding='same', dilation_rate=dirate, name=name_prefix + 'conv_s1')(input)
+    x = tf.keras.layers.BatchNormalization(
+        epsilon=1e-05, momentum=0.9, name=name_prefix + 'bn_s1')(x)
+    x = tf.keras.layers.ReLU(name=name_prefix + 'relu_s1')(x)
+    return x
 
 
 class REBNCONV(nn.Module):
@@ -23,6 +34,16 @@ class REBNCONV(nn.Module):
 # upsample tensor 'src' to have the same spatial size with tensor 'tar'
 
 
+def _upsample_like_tf(src, tar):
+    # print("Target shape: ", tar.shape)
+    # x = tf.keras.layers.UpSampling2D(
+    #     tar.shape[1:3], interpolation='bilinear')(src)
+    # print('***', type(tar.shape))
+    x = tf.image.resize(src, size=tf.shape(tar)[1:3])
+    # print("X shape: ", x.shape)
+    return x
+
+
 def _upsample_like(src, tar):
 
     src = F.interpolate(src, size=tar.shape[2:], mode='bilinear')
@@ -31,6 +52,58 @@ def _upsample_like(src, tar):
 
 
 ### RSU-7 ###
+
+
+def rsu7_tf(input, mid_ch=12, out_ch=3, name='rsu7'):
+    name_prefix = name + '.'
+    hxin = rebnconv_tf(input, out_ch, name=name_prefix + 'rebnconvin')
+
+    hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
+    # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+
+    hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+
+    hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+
+    hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+
+    hx5 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv5')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx5)
+
+    hx6 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv6')
+
+    hx7 = rebnconv_tf(hx6, mid_ch, dirate=2, name=name_prefix + 'rebnconv7')
+
+    hx6d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx7, hx6]), mid_ch, name=name_prefix + 'rebnconv6d')
+    hx6dup = _upsample_like_tf(hx6d, hx5)
+
+    hx5d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx6dup, hx5]), mid_ch, name=name_prefix + 'rebnconv5d')
+    hx5dup = _upsample_like_tf(hx5d, hx4)
+
+    hx4d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx5dup, hx4]), mid_ch, name=name_prefix + 'rebnconv4d')
+    hx4dup = _upsample_like_tf(hx4d, hx3)
+
+    hx3d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx4dup, hx3]), mid_ch, name=name_prefix + 'rebnconv3d')
+    hx3dup = _upsample_like_tf(hx3d, hx2)
+
+    hx2d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx3dup, hx2]), mid_ch, name=name_prefix + 'rebnconv2d')
+    hx2dup = _upsample_like_tf(hx2d, hx1)
+
+    hx1d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx2dup, hx1]), out_ch, name=name_prefix + 'rebnconv1d')
+
+    return tf.keras.layers.add([hx1d, hxin])
+
+
 class RSU7(nn.Module):  # UNet07DRES(nn.Module):
 
     def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
@@ -110,6 +183,49 @@ class RSU7(nn.Module):  # UNet07DRES(nn.Module):
 ### RSU-6 ###
 
 
+def rsu6_tf(input, mid_ch=12, out_ch=3, name='rsu6'):
+    name_prefix = name + '.'
+    hxin = rebnconv_tf(input, out_ch, name=name_prefix + 'rebnconvin')
+
+    hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
+    # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+
+    hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+
+    hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+
+    hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+
+    hx5 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv5')
+
+    hx6 = rebnconv_tf(hx5, mid_ch, dirate=2, name=name_prefix + 'rebnconv6')
+
+    hx5d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx6, hx5]), mid_ch, name=name_prefix + 'rebnconv5d')
+    hx5dup = _upsample_like_tf(hx5d, hx4)
+
+    hx4d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx5dup, hx4]), mid_ch, name=name_prefix + 'rebnconv4d')
+    hx4dup = _upsample_like_tf(hx4d, hx3)
+
+    hx3d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx4dup, hx3]), mid_ch, name=name_prefix + 'rebnconv3d')
+    hx3dup = _upsample_like_tf(hx3d, hx2)
+
+    hx2d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx3dup, hx2]), mid_ch, name=name_prefix + 'rebnconv2d')
+    hx2dup = _upsample_like_tf(hx2d, hx1)
+
+    hx1d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx2dup, hx1]), out_ch, name=name_prefix + 'rebnconv1d')
+
+    return tf.keras.layers.add([hx1d, hxin])
+
+
 class RSU6(nn.Module):  # UNet06DRES(nn.Module):
 
     def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
@@ -179,6 +295,42 @@ class RSU6(nn.Module):  # UNet06DRES(nn.Module):
 ### RSU-5 ###
 
 
+def rsu5_tf(input, mid_ch=12, out_ch=3, name='rsu5'):
+    name_prefix = name + '.'
+    hxin = rebnconv_tf(input, out_ch, name=name_prefix + 'rebnconvin')
+
+    hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
+    # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+
+    hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+
+    hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+
+    hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
+
+    hx5 = rebnconv_tf(hx4, mid_ch, dirate=2, name=name_prefix + 'rebnconv5')
+
+    hx4d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx5, hx4]), mid_ch, name=name_prefix + 'rebnconv4d')
+    hx4dup = _upsample_like_tf(hx4d, hx3)
+
+    hx3d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx4dup, hx3]), mid_ch, name=name_prefix + 'rebnconv3d')
+    hx3dup = _upsample_like_tf(hx3d, hx2)
+
+    hx2d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx3dup, hx2]), mid_ch, name=name_prefix + 'rebnconv2d')
+    hx2dup = _upsample_like_tf(hx2d, hx1)
+
+    hx1d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx2dup, hx1]), out_ch, name=name_prefix + 'rebnconv1d')
+
+    return tf.keras.layers.add([hx1d, hxin])
+
+
 class RSU5(nn.Module):  # UNet05DRES(nn.Module):
 
     def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
@@ -239,6 +391,35 @@ class RSU5(nn.Module):  # UNet05DRES(nn.Module):
 ### RSU-4 ###
 
 
+def rsu4_tf(input, mid_ch=12, out_ch=3, name='rsu4'):
+    name_prefix = name + '.'
+    hxin = rebnconv_tf(input, out_ch, name=name_prefix + 'rebnconvin')
+
+    hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
+    # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+
+    hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+
+    hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
+
+    hx4 = rebnconv_tf(hx3, mid_ch, dirate=2, name=name_prefix + 'rebnconv4')
+
+    hx3d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx4, hx3]), mid_ch, name=name_prefix + 'rebnconv3d')
+    hx3dup = _upsample_like_tf(hx3d, hx2)
+
+    hx2d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx3dup, hx2]), mid_ch, name=name_prefix + 'rebnconv2d')
+    hx2dup = _upsample_like_tf(hx2d, hx1)
+
+    hx1d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx2dup, hx1]), out_ch, name=name_prefix + 'rebnconv1d')
+
+    return tf.keras.layers.add([hx1d, hxin])
+
+
 class RSU4(nn.Module):  # UNet04DRES(nn.Module):
 
     def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
@@ -287,6 +468,25 @@ class RSU4(nn.Module):  # UNet04DRES(nn.Module):
         return hx1d + hxin
 
 ### RSU-4F ###
+
+
+def rsu4f_tf(input, mid_ch=12, out_ch=3, name='rsu4f'):
+    name_prefix = name + '.'
+    hxin = rebnconv_tf(input, out_ch, name=name_prefix + 'rebnconvin')
+
+    hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
+    hx2 = rebnconv_tf(hx1, mid_ch, dirate=2, name=name_prefix + 'rebnconv2')
+    hx3 = rebnconv_tf(hx2, mid_ch, dirate=4, name=name_prefix + 'rebnconv3')
+    hx4 = rebnconv_tf(hx3, mid_ch, dirate=8, name=name_prefix + 'rebnconv4')
+
+    hx3d = rebnconv_tf(tf.keras.layers.Concatenate()
+                       ([hx4, hx3]), mid_ch, dirate=4, name=name_prefix + 'rebnconv3d')
+    hx2d = rebnconv_tf(tf.keras.layers.Concatenate()
+                       ([hx3d, hx2]), mid_ch, dirate=2, name=name_prefix + 'rebnconv2d')
+    hx1d = rebnconv_tf(tf.keras.layers.Concatenate()(
+        [hx2d, hx1]), out_ch, name=name_prefix + 'rebnconv1d')
+
+    return tf.keras.layers.add([hx1d, hxin])
 
 
 class RSU4F(nn.Module):  # UNet04FRES(nn.Module):
@@ -430,6 +630,75 @@ class U2NET(nn.Module):
         return torch.sigmoid(d0), torch.sigmoid(d1), torch.sigmoid(d2), torch.sigmoid(d3), torch.sigmoid(d4), torch.sigmoid(d5), torch.sigmoid(d6)
 
 ### U^2-Net small ###
+
+
+def u2netp_tf(input, out_ch=1):
+    # stage 1
+    hx1 = rsu7_tf(input, 16, 64, name='stage1')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+
+    # stage 2
+    hx2 = rsu6_tf(hx, 16, 64, name='stage2')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+
+    # stage 3
+    hx3 = rsu5_tf(hx, 16, 64, name='stage3')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+
+    # stage 4
+    hx4 = rsu4_tf(hx, 16, 64, name='stage4')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+
+    # stage 5
+    hx5 = rsu4f_tf(hx, 16, 64, name='stage5')
+    hx = tf.keras.layers.MaxPool2D(strides=2)(hx5)
+
+    # stage 6
+    hx6 = rsu4f_tf(hx, 16, 64, name='stage6')
+    hx6up = _upsample_like_tf(hx6, hx5)
+
+    # decoder
+    hx5d = rsu4f_tf(tf.keras.layers.concatenate(
+        [hx6up, hx5]), 16, 64, name='stage5d')
+    hx5dup = _upsample_like_tf(hx5d, hx4)
+
+    hx4d = rsu4_tf(tf.keras.layers.concatenate(
+        [hx5dup, hx4]), 16, 64, name='stage4d')
+    hx4dup = _upsample_like_tf(hx4d, hx3)
+
+    hx3d = rsu5_tf(tf.keras.layers.concatenate(
+        [hx4dup, hx3]), 16, 64, name='stage3d')
+    hx3dup = _upsample_like_tf(hx3d, hx2)
+
+    hx2d = rsu6_tf(tf.keras.layers.concatenate(
+        [hx3dup, hx2]), 16, 64, name='stage2d')
+    hx2dup = _upsample_like_tf(hx2d, hx1)
+
+    hx1d = rsu7_tf(tf.keras.layers.concatenate(
+        [hx2dup, hx1]), 16, 64, name='stage1d')
+
+    # side output
+    d1 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side1')(hx1d)
+
+    d2 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side2')(hx2d)
+    d2 = _upsample_like_tf(d2, d1)
+
+    d3 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side3')(hx3d)
+    d3 = _upsample_like_tf(d3, d1)
+
+    d4 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side4')(hx4d)
+    d4 = _upsample_like_tf(d4, d1)
+
+    d5 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side5')(hx5d)
+    d5 = _upsample_like_tf(d5, d1)
+
+    d6 = tf.keras.layers.Conv2D(out_ch, 3, padding='same', name='side6')(hx6)
+    d6 = _upsample_like_tf(d6, d1)
+
+    d0 = tf.keras.layers.Conv2D(out_ch, 1, name='outconv')(
+        tf.keras.layers.concatenate([d1, d2, d3, d4, d5, d6]))
+
+    return tf.keras.activations.sigmoid(d0)
 
 
 class U2NETP(nn.Module):
