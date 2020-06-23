@@ -35,12 +35,19 @@ class REBNCONV(nn.Module):
 
 
 def _upsample_like_tf(src, tar):
-    # print("Target shape: ", tar.shape)
-    # x = tf.keras.layers.UpSampling2D(
-    #     tar.shape[1:3], interpolation='bilinear')(src)
-    # print('***', type(tar.shape))
-    x = tf.image.resize(src, size=tf.shape(tar)[1:3])
-    # print("X shape: ", x.shape)
+    # Should match PyTorch's F.interpolate(align_corners=False)
+    # for a discussion, see: https://machinethink.net/blog/coreml-upsampling/
+    if tar.shape[1] is not None and tar.shape[2] is not None \
+            and tar.shape[1] // src.shape[1] == 2 \
+            and tar.shape[1] % src.shape[1] == 0 \
+            and tar.shape[2] // src.shape[2] == 2 \
+            and tar.shape[2] % src.shape[2] == 0:
+        # Exact upsampling by a factor of 2
+        x = tf.keras.layers.UpSampling2D(
+            size=(2, 2), interpolation='bilinear')(src)
+    else:
+        # Upsampling factor is either not exactly 2 or only known at runtime
+        x = tf.image.resize(src, size=tf.shape(tar)[1:3], method='bilinear')
     return x
 
 
@@ -49,6 +56,20 @@ def _upsample_like(src, tar):
     src = F.interpolate(src, size=tar.shape[2:], mode='bilinear')
 
     return src
+
+
+def _maxpool2d_tf(x):
+    # U-2-Net uses nn.MaxPool2d(ceil_mode=True).
+    # Tensorflow does not have such a ceil option for the output size.
+    # Instead, we always pad the right and bottom side with 0
+    # (I hope those are the correct sides, I didn't check the PyTorch source code yet).
+    # Note that this only works properly for inputs which don't contain negative
+    # values, which is fine in our case beause U-2-Net only uses MaxPool2D after ReLU.
+    # Thus, for even sized images there is no change, while for odd sized images
+    # the output size will be "ceiled".
+    if x.shape[1] is None or x.shape[2] is None or x.shape[1] % 2 != 0 or x.shape[2] % 2 != 0:
+        x = tf.keras.layers.ZeroPadding2D(padding=((0, 1), (0, 1)))(x)
+    return tf.keras.layers.MaxPool2D(strides=2, padding='valid')(x)
 
 
 ### RSU-7 ###
@@ -60,19 +81,19 @@ def rsu7_tf(input, mid_ch=12, out_ch=3, name='rsu7'):
 
     hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
     # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+    hx = _maxpool2d_tf(hx1)
 
     hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+    hx = _maxpool2d_tf(hx2)
 
     hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+    hx = _maxpool2d_tf(hx3)
 
     hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+    hx = _maxpool2d_tf(hx4)
 
     hx5 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv5')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx5)
+    hx = _maxpool2d_tf(hx5)
 
     hx6 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv6')
 
@@ -189,16 +210,16 @@ def rsu6_tf(input, mid_ch=12, out_ch=3, name='rsu6'):
 
     hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
     # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+    hx = _maxpool2d_tf(hx1)
 
     hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+    hx = _maxpool2d_tf(hx2)
 
     hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+    hx = _maxpool2d_tf(hx3)
 
     hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+    hx = _maxpool2d_tf(hx4)
 
     hx5 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv5')
 
@@ -301,13 +322,13 @@ def rsu5_tf(input, mid_ch=12, out_ch=3, name='rsu5'):
 
     hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
     # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+    hx = _maxpool2d_tf(hx1)
 
     hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+    hx = _maxpool2d_tf(hx2)
 
     hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+    hx = _maxpool2d_tf(hx3)
 
     hx4 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv4')
 
@@ -397,10 +418,10 @@ def rsu4_tf(input, mid_ch=12, out_ch=3, name='rsu4'):
 
     hx1 = rebnconv_tf(hxin, mid_ch, name=name_prefix + 'rebnconv1')
     # TODO: maybe some padding here, because Tensorflow does not have ceil_mode
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+    hx = _maxpool2d_tf(hx1)
 
     hx2 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv2')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+    hx = _maxpool2d_tf(hx2)
 
     hx3 = rebnconv_tf(hx, mid_ch, name=name_prefix + 'rebnconv3')
 
@@ -633,25 +654,29 @@ class U2NET(nn.Module):
 
 
 def u2netp_tf(input, out_ch=1):
+    # image pre-processing
+    hx = tf.nn.bias_add(input, tf.constant([-0.485, -0.456, -0.406]))
+    hx = tf.divide(hx, tf.constant([0.229, 0.224, 0.225]))
+
     # stage 1
-    hx1 = rsu7_tf(input, 16, 64, name='stage1')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx1)
+    hx1 = rsu7_tf(hx, 16, 64, name='stage1')
+    hx = _maxpool2d_tf(hx1)
 
     # stage 2
     hx2 = rsu6_tf(hx, 16, 64, name='stage2')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx2)
+    hx = _maxpool2d_tf(hx2)
 
     # stage 3
     hx3 = rsu5_tf(hx, 16, 64, name='stage3')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx3)
+    hx = _maxpool2d_tf(hx3)
 
     # stage 4
     hx4 = rsu4_tf(hx, 16, 64, name='stage4')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx4)
+    hx = _maxpool2d_tf(hx4)
 
     # stage 5
     hx5 = rsu4f_tf(hx, 16, 64, name='stage5')
-    hx = tf.keras.layers.MaxPool2D(strides=2)(hx5)
+    hx = _maxpool2d_tf(hx5)
 
     # stage 6
     hx6 = rsu4f_tf(hx, 16, 64, name='stage6')
