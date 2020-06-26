@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 # Load the *.tflite model and get input details
-model = tf.lite.Interpreter(model_path='u2netp_custom.tflite')
+model = tf.lite.Interpreter(model_path='u2netp_custom_quantized.tflite')
 input_details = model.get_input_details()
 print(input_details)
 output_details = model.get_output_details()
@@ -36,4 +36,4 @@ output = model.get_tensor(output_details[0]['index'])
 rescaled_output = tf.image.resize(output, image.shape[0:2])
 mask_bytes = tf.image.encode_png(
     tf.image.convert_image_dtype(rescaled_output[0], dtype=tf.uint8))
-tf.io.write_file('tflite_output.png', mask_bytes)
+tf.io.write_file('tflite_quantized_output.png', mask_bytes)

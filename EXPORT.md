@@ -54,16 +54,20 @@ model.resize_tensor_input(
 model.allocate_tensors()
 ```
 
-# Step 4b: Visualize TFLite Graph
-
-In Tensorflow repo:
-```
-bazel run //tensorflow/lite/tools:visualize \
-     model.tflite \
-     visualized_model.html
-```
-
 (also works in C++ and Java APIs).
+
+# Step 5: Add Metadata to TFLite model
+
+`python add_tflite_metadata.py`
+
+# Step 6: Generate Android wrapper code
+
+```
+tflite_codegen --model=u2netp_custom.tflite \
+    --package_name=com.weboloco.android.segmentation \
+    --model_class_name=U2NetModel \
+    --destination=./u2net_android_wrapper
+```
 
 # Building onnxruntime AAR
 Didn't build any aar files. Couldn't figure out why.
