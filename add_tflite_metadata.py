@@ -65,6 +65,7 @@ b.Finish(
     _metadata.MetadataPopulator.METADATA_FILE_IDENTIFIER)
 metadata_buf = b.Output()
 
-populator = _metadata.MetadataPopulator.with_model_file("u2netp_custom.tflite")
+populator = _metadata.MetadataPopulator.with_model_file(
+    "u2netp_custom_quantized.tflite")
 populator.load_metadata_buffer(metadata_buf)
 populator.populate()

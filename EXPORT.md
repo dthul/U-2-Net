@@ -1,75 +1,44 @@
-# Step 1: PyTorch -> ONNX
+# Step 0: Install Dependencies
+
+`pip install torch==1.5.0 TensorFlow==2.2.0 tflite-support==0.1.0a1`
+
+# Step 1: Create the TensorFlow Model
+
+Run the `u2net_export.py` script, which constructs the original PyTorch model as well as our TensorFlow reimplementation, transfers the original weights to the TensorFlow model, and saves the TensorFlow model to disk using the SavedModel format:
 
 `python u2net_export.py`
 
-# Step 2: ONNX -> Tensorflow Freeze Graph (needs resize11 branch of onnx-tensorflow)
+The model will be exported to the `u2netp_custom/` folder.
 
-`onnx-tf convert -i "u2netp.onnx" -o  "u2netp.pb"`
+# Step 2: TensorFlow SavedModel -> TensorFlow Lite
 
-# Step 2b: Visualize Tensorflow Model (useless, Tensorboard gives an unreadable graph)
-
-Convert the Frozen Graph to a Saved Model
-
-`python pb2savedmodel.py`
-
-Convert the Saved Model to a Tensorboard Log
-
-`python -m tensorflow.python.tools.import_pb_to_tensorboard --model_dir u2netp_saved_model --log_dir tensorboard_log`
-
-Open Tensorboard
-
-`tensorboard --logdir=tensorboard_log`
-
-# Step 3: Transform the Tensorflow Graph
-
-TODO: Install custom Tensorflow graph transform (install bazilisk/bazel, prepare and activate virtualenv, install pip dependencies, get Tensorflow source and build the graph transform tool, `./configure`, `bazel build tensorflow/tools/graph_transforms:transform_graph`)
-
-`tensorflow-repo/bazel-bin/tensorflow/tools/graph_transforms/transform_graph --in_graph=u2netp.pb --out_graph=u2netp_transformed.pb --inputs='input' --outputs='d0' --transforms='fold_constants remove_noop_split dilation2d_to_maxpool2d remove_noop_padv2 swap_trans_mul_add swap_trans_relu fold_transposed_pads strip_unused_nodes'`
-
-# Step 4: Tensorflow Freeze Graph -> Tensorflow Lite
+This step converts the TensorFlow model to a TensorFlow Lite model, applying optimizations (such as fusing convolution, bias, batch norm and activation) and quantization along the way.
 
 `python pb2tflite.py`
 
-or
+The resulting TensorFlow Lite model will be saved as `u2netp_custom_quantized.tflite`.
 
-`toco --enable_v1_converter --graph_def_file u2netp_transformed.pb --output_file u2netp_transformed.tflite --input_arrays input --output_arrays d0 --input_shapes 1,3,320,320`
+# Step 3: Add Metadata to the TensorFlow Lite model
 
-or
-
-`toco --output_file u2netp_custom.tflite --saved_model_dir u2netp_custom --experimental_new_converter true --input_shapes 1,320,320,3`
-
-If you want to do inference on sizes other than 320x320, do something like this at runtime (not so efficient though!):
-
-```python
-from tensorflow.contrib.lite.python import interpreter
-
-# Load the *.tflite model and get input details
-model = Interpreter(model_path='model.tflite')
-input_details = model.get_input_details()
-
-# Your network currently has an input shape (1, 128, 80 , 1),
-# but suppose you need the input size to be (2, 128, 200, 1).
-model.resize_tensor_input(
-    input_details[0]['index'], (2, 128, 200, 1))
-model.allocate_tensors()
-```
-
-(also works in C++ and Java APIs).
-
-# Step 5: Add Metadata to TFLite model
+The bare TensorFlow Lite model can be enriched with metadata to describe the inputs and outputs. This allows for example Android Studio (>= 4.2) to automatically create binding code for the TensorFlow Lite model.
 
 `python add_tflite_metadata.py`
 
-# Step 6: Generate Android wrapper code
+This command modifies the `u2netp_custom_quantized.tflite` file in-place.
+
+# Step 4: Optionally, Check that the Model Works
+
+Run `python tflite_inference.py`.
+
+The resulting segmentation mask will be stored in `tflite_quantized_output.png`.
+
+# Step 5: Generate Android Wrapper Code
+
+Either just import `u2netp_custom_quantized.tflite` into Android Studio (`New -> Other -> TensorFlow Lite Model`), or manually create Java binding code:
 
 ```
-tflite_codegen --model=u2netp_custom.tflite \
+tflite_codegen --model=u2netp_custom_quantized.tflite \
     --package_name=com.weboloco.android.segmentation \
     --model_class_name=U2NetModel \
     --destination=./u2net_android_wrapper
 ```
-
-# Building onnxruntime AAR
-Didn't build any aar files. Couldn't figure out why.
-
-`./build.sh --config Release --android --android_sdk_path /Users/dthul/Library/Android/sdk --android_ndk_path /Users/dthul/Library/Android/sdk/ndk/21.2.6472646 --android_abi [armeabi-v7a|arm64-v8a|x86|x86_64] --android_api 21`
