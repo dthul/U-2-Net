@@ -10,7 +10,21 @@ Run the `u2net_export.py` script, which constructs the original PyTorch model as
 
 The model will be exported to the `u2netp_custom/` folder.
 
-# Step 2: TensorFlow SavedModel -> TensorFlow Lite
+# Step 2a: TensorFlow SavedModel -> ONNX (e.g. for Unity Barracuda)
+
+Needs tf2onnx >= 1.7.0. Was not on PyPI at the time of this writing, so maybe:
+
+`pip install git+https://github.com/onnx/tensorflow-onnx`
+
+to install straight from the master branch, or
+
+`pip install tf2onnx`
+
+once it's available on PyPI.
+
+`python -m tf2onnx.convert --saved-model u2netp_custom --opset 9 --output u2netp_custom.onnx`
+
+# Step 2b: TensorFlow SavedModel -> TensorFlow Lite
 
 This step converts the TensorFlow model to a TensorFlow Lite model, applying optimizations (such as fusing convolution, bias, batch norm and activation) and quantization along the way.
 
@@ -42,3 +56,14 @@ tflite_codegen --model=u2netp_custom_quantized.tflite \
     --model_class_name=U2NetModel \
     --destination=./u2net_android_wrapper
 ```
+
+# Misc
+
+## Building Tensorflow Lite Shared Library with C API
+
+Clone the Tensorflow repo, then:
+
+`bazel build -c opt //tensorflow/lite/c:libtensorflowlite_c.so`
+
+The library can be found in `./bazel-bin/tensorflow/lite/c/libtensorflowlite_c.so`
+For Unity, rename the shared library file to `tensorflowlite_c.bundle`
